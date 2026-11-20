@@ -1,0 +1,44 @@
+# Entornos virtuales de Python
+venv/
+.venv/
+env/
+ENV/
+
+# Archivos de caché y compilación de Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.spec
+
+# Base de datos local de desarrollo
+*.db
+*.sqlite
+*.sqlite3
+gas_delivery.db
+backend/gas_delivery.db
+
+# Variables de entorno y credenciales sensibles
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# Dependencias y artefactos de Node / Frontend
+node_modules/
+dist/
+build/
+.npm/
+npm-debug.log*
+
+# Configuraciones de editores e IDEs
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Archivos temporales del sistema
+Thumbs.db
+[Dd]esktop.ini
+.DS_Store
+*.log

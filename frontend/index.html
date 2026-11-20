@@ -1,0 +1,1265 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Agua Santa Anita - Sistema Integral de Cisternas y Despacho Fraccionado</title>
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- Leaflet CSS & JS para OpenStreetMap -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  
+  <!-- React 18 & ReactDOM en modo desarrollo -->
+  <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <style>
+    .custom-marker {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 50%;
+      color: white;
+      font-weight: bold;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
+      border: 2px solid white;
+    }
+  </style>
+</head>
+<body class="bg-slate-100 text-slate-800 antialiased font-sans">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+    const API_BASE = "http://localhost:8000/api";
+
+    function App() {
+      const [modoPortal, setModoPortal] = useState("admin"); // 'admin' vs 'cliente'
+      
+      const [clientes, setClientes] = useState([]);
+      const [pedidos, setPedidos] = useState([]);
+      const [cisternas, setCisternas] = useState([]);
+      const [combustible, setCombustible] = useState([]);
+      const [mantenimientos, setMantenimientos] = useState([]);
+      const [stats, setStats] = useState(null);
+
+      // Sesión Cliente (Acceso solo con teléfono)
+      const [clienteSesion, setClienteSesion] = useState(null);
+      const [telefonoInput, setTelefonoInput] = useState("");
+      const [buscandoCliente, setBuscandoCliente] = useState(false);
+
+      const cargarDatos = async () => {
+        try {
+          const [resCli, resPed, resCis, resStats, resComb, resMant] = await Promise.all([
+            fetch(`${API_BASE}/clientes`).then(r => r.json()).catch(() => []),
+            fetch(`${API_BASE}/pedidos`).then(r => r.json()).catch(() => []),
+            fetch(`${API_BASE}/cisternas`).then(r => r.json()).catch(() => []),
+            fetch(`${API_BASE}/stats`).then(r => r.json()).catch(() => null),
+            fetch(`${API_BASE}/combustible`).then(r => r.json()).catch(() => []),
+            fetch(`${API_BASE}/mantenimientos`).then(r => r.json()).catch(() => [])
+          ]);
+          setClientes(resCli || []);
+          setPedidos(resPed || []);
+          setCisternas(resCis || []);
+          setStats(resStats || null);
+          setCombustible(resComb || []);
+          setMantenimientos(resMant || []);
+        } catch (e) {
+          console.error("Error al cargar datos:", e);
+        }
+      };
+
+      useEffect(() => {
+        cargarDatos();
+        const interval = setInterval(cargarDatos, 10000);
+        return () => clearInterval(interval);
+      }, []);
+
+      const autenticarCliente = async (identificador) => {
+        setBuscandoCliente(true);
+        try {
+          const res = await fetch(`${API_BASE}/seguimiento/${identificador}`);
+          if (res.ok) {
+            const data = await res.json();
+            setClienteSesion(data);
+            setModoPortal("cliente");
+          } else {
+            alert("No se encontró ningún registro para este número de teléfono.");
+          }
+        } catch (e) {
+          alert("Error de conexión con el servidor.");
+        } finally {
+          setBuscandoCliente(false);
+        }
+      };
+
+      return (
+        <div className="min-h-screen flex flex-col max-w-6xl mx-auto pb-12">
+          {/* HEADER PRINCIPAL */}
+          <header className="bg-sky-950 text-white p-3 shadow-md sticky top-0 z-50 flex flex-wrap items-center justify-between gap-2 border-b border-sky-800">
+            <div className="flex items-center space-x-2.5">
+              <span className="bg-sky-500 text-white font-black p-1.5 rounded-xl text-lg flex items-center justify-center shadow">
+                💧
+              </span>
+              <div>
+                <h1 className="font-bold text-sm sm:text-base leading-tight">Agua Potable Santa Anita</h1>
+                <p className="text-[11px] text-sky-200">Cisternas 10,000L, Despacho Fraccionado & Control de Flota</p>
+              </div>
+            </div>
+
+            {/* Selector de Doble Vista */}
+            <div className="bg-sky-900/80 p-1 rounded-xl flex items-center border border-sky-700">
+              <button
+                onClick={() => setModoPortal("admin")}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
+                  modoPortal === "admin" 
+                    ? "bg-sky-600 text-white shadow" 
+                    : "text-sky-300 hover:text-white"
+                }`}
+              >
+                🏢 Vista Empresa (Despacho)
+              </button>
+              <button
+                onClick={() => setModoPortal("cliente")}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
+                  modoPortal === "cliente" 
+                    ? "bg-emerald-600 text-white shadow" 
+                    : "text-sky-300 hover:text-white"
+                }`}
+              >
+                👤 Vista Cliente (Vecino)
+              </button>
+            </div>
+          </header>
+
+          {/* CONTENIDO SEGÚN LA VISTA ACTIVA */}
+          {modoPortal === "admin" ? (
+            <PortalEmpresa 
+              clientes={clientes} 
+              pedidos={pedidos} 
+              cisternas={cisternas} 
+              combustible={combustible}
+              mantenimientos={mantenimientos}
+              stats={stats} 
+              onRecargar={cargarDatos}
+              onProbarCliente={(tel) => autenticarCliente(tel)}
+            />
+          ) : (
+            <PortalCliente 
+              clienteSesion={clienteSesion}
+              telefonoInput={telefonoInput}
+              setTelefonoInput={setTelefonoInput}
+              buscandoCliente={buscandoCliente}
+              onBuscar={(tel) => autenticarCliente(tel)}
+              onCerrarSesion={() => setClienteSesion(null)}
+              onRecargar={() => {
+                if (clienteSesion?.cliente?.telefono) {
+                  autenticarCliente(clienteSesion.cliente.telefono);
+                }
+              }}
+            />
+          )}
+        </div>
+      );
+    }
+
+    // =========================================================================
+    // VISTA 1: PORTAL DE LA EMPRESA (DESPACHO, COMBUSTIBLE, SUNAT, FLOTA)
+    // =========================================================================
+    function PortalEmpresa({ clientes, pedidos, cisternas, combustible, mantenimientos, stats, onRecargar, onProbarCliente }) {
+      const [tab, setTab] = useState("despacho"); // 'despacho', 'mapa', 'combustible', 'facturacion', 'mantenimiento', 'caja'
+      const [filtroSector, setFiltroSector] = useState("Todos");
+      const [modalRecargaCombustible, setModalRecargaCombustible] = useState(false);
+      const [modalNuevoPedido, setModalNuevoPedido] = useState(false);
+      const [modalNuevoCliente, setModalNuevoCliente] = useState(false);
+      const [comprobanteImprimir, setComprobanteImprimir] = useState(null);
+
+      const sectores = ["Todos", "Coop. Universal", "Coop. Huáscar", "Nocheto", "Los Ficus", "La Encalada", "Av. Los Ruiseñores"];
+
+      return (
+        <div className="flex-1 flex flex-col p-3 sm:p-4 gap-3">
+          {/* Navegación interna de la Empresa */}
+          <div className="bg-white p-1 rounded-xl shadow-sm border border-slate-200 flex flex-wrap gap-1 text-xs font-bold">
+            <button 
+              onClick={() => setTab("despacho")} 
+              className={`py-2 px-3 rounded-lg transition flex items-center gap-1 ${tab === 'despacho' ? 'bg-sky-600 text-white shadow' : 'text-slate-600 hover:bg-slate-50'}`}
+            >
+              💧 Despacho Fraccionado (10,000L)
+            </button>
+            <button 
+              onClick={() => setTab("mapa")} 
+              className={`py-2 px-3 rounded-lg transition flex items-center gap-1 ${tab === 'mapa' ? 'bg-sky-600 text-white shadow' : 'text-slate-600 hover:bg-slate-50'}`}
+            >
+              🗺️ Mapa & GPS Flota
+            </button>
+            <button 
+              onClick={() => setTab("combustible")} 
+              className={`py-2 px-3 rounded-lg transition flex items-center gap-1 ${tab === 'combustible' ? 'bg-sky-600 text-white shadow' : 'text-slate-600 hover:bg-slate-50'}`}
+            >
+              ⛽ Combustible & GPS (Volkswagen)
+            </button>
+            <button 
+              onClick={() => setTab("facturacion")} 
+              className={`py-2 px-3 rounded-lg transition flex items-center gap-1 ${tab === 'facturacion' ? 'bg-sky-600 text-white shadow' : 'text-slate-600 hover:bg-slate-50'}`}
+            >
+              🧾 Facturación SUNAT & Pedidos
+            </button>
+            <button 
+              onClick={() => setTab("mantenimiento")} 
+              className={`py-2 px-3 rounded-lg transition flex items-center gap-1 ${tab === 'mantenimiento' ? 'bg-sky-600 text-white shadow' : 'text-slate-600 hover:bg-slate-50'}`}
+            >
+              🔧 Mantenimiento & Choferes
+            </button>
+            <button 
+              onClick={() => setTab("caja")} 
+              className={`py-2 px-3 rounded-lg transition flex items-center gap-1 ${tab === 'caja' ? 'bg-sky-600 text-white shadow' : 'text-slate-600 hover:bg-slate-50'}`}
+            >
+              📊 Caja & Utilidad
+            </button>
+          </div>
+
+          {/* TAB 1: DESPACHO FRACCIONADO DE CISTERNAS */}
+          {tab === "despacho" && (
+            <div className="flex flex-col gap-3">
+              <div className="bg-sky-50 border border-sky-200 p-3 rounded-xl text-xs text-sky-950 flex justify-between items-center flex-wrap gap-2">
+                <div>
+                  <p className="font-bold text-sm">🚚 Optimización de Viaje por Sector en Santa Anita</p>
+                  <p className="mt-0.5">Una cisterna de <strong>10,000 Litros</strong> puede abastecer una <em>tanqueada industrial completa</em> o agrupar hasta <strong>5 pedidos residenciales de 2,000 Litros</strong> en una sola salida.</p>
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={() => setModalNuevoPedido(true)} className="bg-sky-600 text-white font-bold px-3 py-1.5 rounded-lg shadow hover:bg-sky-700">
+                    ➕ Nuevo Pedido de Agua
+                  </button>
+                  <button onClick={() => setModalNuevoCliente(true)} className="bg-slate-800 text-white font-bold px-3 py-1.5 rounded-lg shadow hover:bg-slate-700">
+                    ➕ Registrar Vecino
+                  </button>
+                </div>
+              </div>
+
+              {/* Tarjetas de Cisternas de 10,000 Litros */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {cisternas.map(cis => {
+                  const porcentaje = Math.round((cis.litros_asignados / cis.capacidad_total_litros) * 100);
+                  const pedidosCisterna = pedidos.filter(p => p.id_cisterna === cis.id_cisterna && p.estado !== "Entregado");
+
+                  return (
+                    <div key={cis.id_cisterna} className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col justify-between gap-3">
+                      <div>
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <span className="bg-sky-100 text-sky-800 text-[10px] font-black px-2 py-0.5 rounded-full uppercase">
+                              Cisterna Activa
+                            </span>
+                            <h3 className="text-lg font-black text-slate-900 mt-1">{cis.placa}</h3>
+                            <p className="text-xs text-slate-500 font-medium">Chofer: <strong>{cis.chofer}</strong> • {cis.modelo_vehiculo}</p>
+                          </div>
+                          <div className="text-right">
+                            <span className="text-xs font-bold text-slate-400">Sector:</span>
+                            <p className="text-xs font-black text-sky-700">{cis.sector_actual}</p>
+                            <span className="text-[10px] bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded font-bold">{cis.estado_ruta}</span>
+                          </div>
+                        </div>
+
+                        {/* Barra de Carga de 10,000 Litros */}
+                        <div className="mt-3">
+                          <div className="flex justify-between text-xs font-bold mb-1">
+                            <span className="text-slate-600">Volumen Asignado:</span>
+                            <span className="text-sky-950">{cis.litros_asignados.toLocaleString()} / {cis.capacidad_total_litros.toLocaleString()} L ({porcentaje}%)</span>
+                          </div>
+                          <div className="w-full bg-slate-100 rounded-full h-3.5 overflow-hidden border">
+                            <div 
+                              className={`h-full transition-all duration-500 ${porcentaje >= 100 ? 'bg-emerald-500' : 'bg-sky-500'}`}
+                              style={{ width: `${Math.min(100, porcentaje)}%` }}
+                            ></div>
+                          </div>
+                        </div>
+
+                        {/* Control de Calidad del Agua */}
+                        <div className="mt-2.5 flex items-center justify-between bg-sky-50/70 p-2 rounded-lg border border-sky-100 text-[11px]">
+                          <span className="text-slate-600 font-semibold">🧪 Calidad de Agua:</span>
+                          <span className="font-bold text-emerald-700">Cloro: {cis.calidad_cloro_ppm} ppm (Óptimo)</span>
+                          <span className="font-bold text-slate-700">pH: {cis.calidad_ph}</span>
+                        </div>
+
+                        {/* Lista de vecinos en ruta */}
+                        <div className="mt-3 bg-slate-50 p-2.5 rounded-lg border border-slate-200/80">
+                          <p className="text-[11px] font-bold text-slate-600 uppercase mb-1.5">Clientes en la ruta ({pedidosCisterna.length}):</p>
+                          {pedidosCisterna.length === 0 ? (
+                            <p className="text-xs text-slate-400 italic">No tiene pedidos asignados aún.</p>
+                          ) : (
+                            <div className="space-y-1.5">
+                              {pedidosCisterna.map(p => {
+                                const c = clientes.find(cli => cli.id_cliente === p.id_cliente) || {};
+                                return (
+                                  <div key={p.id_pedido} className="flex justify-between items-center text-xs bg-white p-2 rounded border">
+                                    <div>
+                                      <span className="font-bold text-slate-800">{c.nombre}</span>
+                                      <span className="text-slate-400 text-[10px] block">{c.sector} • {c.direccion_referencia?.substring(0, 32)}...</span>
+                                    </div>
+                                    <div className="text-right">
+                                      <span className="bg-sky-100 text-sky-900 font-black px-1.5 py-0.5 rounded text-[11px]">
+                                        {p.litros_agua.toLocaleString()} L
+                                      </span>
+                                      <button 
+                                        onClick={async () => {
+                                          await fetch(`${API_BASE}/pedidos/${p.id_pedido}/status`, {
+                                            method: "PUT",
+                                            headers: { "Content-Type": "application/json" },
+                                            body: JSON.stringify({ estado: "Entregado", monto_pagado: p.total_soles })
+                                          });
+                                          onRecargar();
+                                        }}
+                                        className="block text-[10px] font-bold text-emerald-600 hover:underline mt-0.5"
+                                      >
+                                        ✅ Entregar
+                                      </button>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Pedidos Pendientes de Asignar */}
+              <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
+                <h3 className="font-bold text-slate-900 text-sm mb-2">💧 Pedidos de Agua Pendientes en Santa Anita</h3>
+                {pedidos.filter(p => p.estado === "Pendiente").length === 0 ? (
+                  <p className="text-xs text-slate-400">No hay pedidos pendientes de despacho.</p>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                    {pedidos.filter(p => p.estado === "Pendiente").map(p => {
+                      const c = clientes.find(cli => cli.id_cliente === p.id_cliente) || {};
+                      return (
+                        <div key={p.id_pedido} className="bg-slate-50 p-2.5 rounded-lg border text-xs flex flex-col justify-between gap-2">
+                          <div>
+                            <div className="flex justify-between font-bold">
+                              <span>{c.nombre}</span>
+                              <span className="text-sky-700">{p.litros_agua.toLocaleString()} L</span>
+                            </div>
+                            <p className="text-slate-500 text-[11px]">{c.sector} {c.manzana_lote}</p>
+                            <p className="text-amber-900 text-[10px] bg-amber-50 p-1 rounded mt-1">{c.direccion_referencia}</p>
+                          </div>
+                          <button 
+                            onClick={async () => {
+                              const targetCisterna = cisternas[0]?.id_cisterna;
+                              if (!targetCisterna) return;
+                              await fetch(`${API_BASE}/pedidos/${p.id_pedido}/status`, {
+                                method: "PUT",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ estado: "En camino", id_cisterna: targetCisterna })
+                              });
+                              onRecargar();
+                            }}
+                            className="bg-sky-600 hover:bg-sky-700 text-white font-bold py-1 px-2 rounded text-[11px]"
+                          >
+                            🚚 Asignar a Cisterna {cisternas[0]?.placa}
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* TAB 2: MAPA FLOTA & RASTREO GPS */}
+          {tab === "mapa" && (
+            <div className="flex flex-col gap-2">
+              <div className="bg-white p-2.5 rounded-xl shadow-sm flex flex-wrap items-center justify-between gap-2 text-xs">
+                <div className="flex items-center gap-1.5 overflow-x-auto">
+                  <span className="font-bold text-slate-500">Filtrar Sector:</span>
+                  {sectores.map(s => (
+                    <button 
+                      key={s} 
+                      onClick={() => setFiltroSector(s)}
+                      className={`px-2.5 py-1 rounded-full font-medium transition ${filtroSector === s ? 'bg-sky-600 text-white' : 'bg-slate-100 text-slate-600'}`}
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="bg-white p-1 rounded-xl shadow border border-slate-200">
+                <MapaFlotaAdmin 
+                  clientes={clientes} 
+                  pedidos={pedidos} 
+                  cisternas={cisternas} 
+                  filtroSector={filtroSector} 
+                  onProbarCliente={onProbarCliente}
+                />
+              </div>
+            </div>
+          )}
+
+          {/* TAB 3: MÓDULO DE COMBUSTIBLE PARA CAMIONES ANTIGUOS */}
+          {tab === "combustible" && (
+            <div className="flex flex-col gap-3">
+              <div className="bg-amber-50 border border-amber-200 p-3 rounded-xl text-xs text-amber-950 flex justify-between items-center flex-wrap gap-2">
+                <div>
+                  <p className="font-bold text-sm">⛽ Control de Combustible Remoto para Camiones Antiguos</p>
+                  <p className="mt-0.5">Calcula automáticamente el consumo de diésel multiplicando los <strong>kilómetros reales recorridos por GPS</strong> por el rendimiento nominal del camión (<strong>14 km/galón</strong>). Detecta automáticamente anomalías si cargan más en el grifo de lo que rodaron.</p>
+                </div>
+                <button 
+                  onClick={() => setModalRecargaCombustible(true)}
+                  className="bg-amber-600 text-white font-bold px-3 py-1.5 rounded-lg shadow hover:bg-amber-700"
+                >
+                  ➕ Registrar Carga en Grifo
+                </button>
+              </div>
+
+              {/* Métricas de Combustible de la Flota */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                <div className="bg-white p-3.5 rounded-xl shadow-sm border-l-4 border-sky-500">
+                  <span className="text-slate-500 font-bold">Km GPS Flota Hoy</span>
+                  <p className="text-xl font-black text-slate-900 mt-1">{stats?.km_totales_flota_hoy || 0} km</p>
+                  <span className="text-[10px] text-slate-400">Calculado por coordenadas</span>
+                </div>
+                <div className="bg-white p-3.5 rounded-xl shadow-sm border-l-4 border-amber-500">
+                  <span className="text-slate-500 font-bold">Diésel Estimado Consumido</span>
+                  <p className="text-xl font-black text-amber-800 mt-1">{stats?.galones_diesel_consumidos || 0} gal</p>
+                  <span className="text-[10px] text-slate-400">A 14 km por galón</span>
+                </div>
+                <div className="bg-white p-3.5 rounded-xl shadow-sm border-l-4 border-emerald-500">
+                  <span className="text-slate-500 font-bold">Gasto Estimado Diésel</span>
+                  <p className="text-xl font-black text-emerald-700 mt-1">S/ {stats?.gasto_combustible_estimado_soles || 0}</p>
+                  <span className="text-[10px] text-slate-400">Precio Diésel S/ 16.50/gal</span>
+                </div>
+                <div className="bg-white p-3.5 rounded-xl shadow-sm border-l-4 border-indigo-500">
+                  <span className="text-slate-500 font-bold">Estado de Desvíos</span>
+                  <p className="text-xl font-black text-indigo-700 mt-1">Normal</p>
+                  <span className="text-[10px] text-emerald-600 font-bold">Sin alertas de fuga</span>
+                </div>
+              </div>
+
+              {/* Historial de Cargas en Grifo */}
+              <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
+                <h3 className="font-bold text-slate-900 text-sm mb-3">Historial de Recargas de Diésel y Comparativa GPS</h3>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs text-left">
+                    <thead className="bg-slate-50 text-slate-500 uppercase text-[10px] border-b">
+                      <tr>
+                        <th className="p-2">Fecha</th>
+                        <th className="p-2">Cisterna / Chofer</th>
+                        <th className="p-2">Km Odómetro</th>
+                        <th className="p-2">Km GPS</th>
+                        <th className="p-2">Galones Grifo</th>
+                        <th className="p-2">Galones GPS Esperados</th>
+                        <th className="p-2">Total Soles</th>
+                        <th className="p-2">Grifo</th>
+                        <th className="p-2">Estado</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {combustible.map(reg => (
+                        <tr key={reg.id_registro} className="hover:bg-slate-50">
+                          <td className="p-2">{new Date(reg.fecha).toLocaleDateString()}</td>
+                          <td className="p-2 font-bold">{cisternas.find(c => c.id_cisterna === reg.id_cisterna)?.placa}</td>
+                          <td className="p-2">{reg.km_odometro?.toLocaleString()} km</td>
+                          <td className="p-2 font-bold text-sky-700">{reg.km_gps_recorridos} km</td>
+                          <td className="p-2 font-bold text-amber-800">{reg.galones_cargados} gal</td>
+                          <td className="p-2">{reg.galones_estimados_gps} gal</td>
+                          <td className="p-2 font-black text-slate-800">S/ {reg.costo_total_soles.toFixed(2)}</td>
+                          <td className="p-2 text-slate-500">{reg.grifo}</td>
+                          <td className="p-2">
+                            {reg.alerta_desvio ? (
+                              <span className="bg-red-100 text-red-700 px-2 py-0.5 rounded font-bold text-[10px]">⚠️ Desvío</span>
+                            ) : (
+                              <span className="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded font-bold text-[10px]">Conforme</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 4: FACTURACIÓN ELECTRÓNICA SUNAT */}
+          {tab === "facturacion" && (
+            <div className="flex flex-col gap-3">
+              <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
+                <div className="flex justify-between items-center mb-3">
+                  <h3 className="font-bold text-slate-900 text-sm">Comprobantes de Pago Electrónicos (Boleta / Factura SUNAT)</h3>
+                  <span className="text-xs bg-slate-100 px-2.5 py-1 rounded font-bold text-slate-600">Serie Activa: B001 / F001</span>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {pedidos.map(p => {
+                    const c = clientes.find(cli => cli.id_cliente === p.id_cliente) || {};
+                    return (
+                      <div key={p.id_pedido} className="bg-white p-3.5 rounded-xl border border-slate-200 flex flex-col justify-between gap-2 text-xs shadow-sm">
+                        <div>
+                          <div className="flex justify-between items-start">
+                            <div>
+                              <span className="bg-indigo-100 text-indigo-800 font-black px-2 py-0.5 rounded text-[10px]">
+                                {p.comprobante_numero || 'B001-000001'}
+                              </span>
+                              <h4 className="font-bold text-slate-900 text-sm mt-1">{c.nombre}</h4>
+                              <p className="text-slate-500">{p.comprobante_tipo === 'Factura' ? `RUC: ${c.dni_ruc || '20601234567'}` : `DNI: ${c.dni_ruc || '10458921'}`}</p>
+                            </div>
+                            <div className="text-right">
+                              <span className="text-base font-black text-slate-800">S/ {p.total_soles.toFixed(2)}</span>
+                              <p className="text-[10px] font-bold text-emerald-600">{p.metodo_pago}</p>
+                            </div>
+                          </div>
+                          <p className="text-slate-600 bg-slate-50 p-1.5 rounded mt-2 border">
+                            💧 Abastecimiento de {p.litros_agua.toLocaleString()} Litros de Agua Potable ({p.modalidad})
+                          </p>
+                        </div>
+
+                        <div className="flex justify-between items-center pt-2 border-t">
+                          <button 
+                            onClick={() => setComprobanteImprimir(p)}
+                            className="bg-slate-800 hover:bg-slate-900 text-white font-bold px-3 py-1 rounded text-[11px] flex items-center gap-1 shadow"
+                          >
+                            🖨️ Ver Ticket / Factura
+                          </button>
+                          <a 
+                            href={`https://wa.me/51${c.telefono}?text=Hola%20${encodeURIComponent(c.nombre)},%20tu%20cisterna%20de%20agua%20est%C3%A1%20en%20camino.%20Sigue%20tu%20cami%C3%B3n%20aqu%C3%AD:%20http://localhost:8000/?t=${c.token_acceso}`}
+                            target="_blank"
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-2.5 py-1 rounded text-[11px]"
+                          >
+                            💬 Enviar Link por WhatsApp
+                          </a>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 5: MANTENIMIENTO PREVENTIVO & CHOFERES */}
+          {tab === "mantenimiento" && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+              <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
+                <h3 className="font-bold text-slate-900 text-sm mb-3">🔧 Mantenimiento Preventivo de Flota Diésel</h3>
+                <div className="space-y-3">
+                  {mantenimientos.map(m => (
+                    <div key={m.id_mantenimiento} className="p-3 bg-slate-50 rounded-lg border">
+                      <div className="flex justify-between font-bold">
+                        <span>{m.tipo}</span>
+                        <span className="text-emerald-700">S/ {m.costo_soles.toFixed(2)}</span>
+                      </div>
+                      <p className="text-slate-500 mt-1">Km Servicio: {m.km_servicio.toLocaleString()} km ➔ Próximo: <strong>{m.proximo_km.toLocaleString()} km</strong></p>
+                      <p className="text-[11px] text-slate-400 mt-0.5">{m.taller}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
+                <h3 className="font-bold text-slate-900 text-sm mb-3">👨‍✈️ Liquidación de Choferes y Comisiones</h3>
+                <div className="space-y-2.5">
+                  {cisternas.map(cis => (
+                    <div key={cis.id_cisterna} className="p-3 bg-slate-50 rounded-lg border flex justify-between items-center">
+                      <div>
+                        <p className="font-bold text-slate-900">{cis.chofer}</p>
+                        <p className="text-slate-500 text-[11px]">Cisterna: {cis.placa} ({cis.modelo_vehiculo})</p>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-slate-400 text-[10px] block">Comisión acumulada:</span>
+                        <span className="text-base font-black text-indigo-700">S/ 45.00</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 6: CAJA DEL DÍA */}
+          {tab === "caja" && (
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="bg-white p-4 rounded-xl shadow-sm border-l-4 border-sky-500">
+                <span className="text-xs text-slate-500 font-bold">Litros de Agua Despachados</span>
+                <p className="text-2xl font-black text-sky-800 mt-1">{stats?.litros_agua_despachados.toLocaleString() || 0} L</p>
+                <span className="text-[11px] text-sky-600">{stats?.pedidos_entregados || 0} entregas realizadas</span>
+              </div>
+              <div className="bg-white p-4 rounded-xl shadow-sm border-l-4 border-emerald-500">
+                <span className="text-xs text-slate-500 font-bold">Ventas Totales Hoy</span>
+                <p className="text-2xl font-black text-slate-900 mt-1">S/ {stats?.total_ventas_hoy.toFixed(2) || '0.00'}</p>
+                <span className="text-[11px] text-slate-400">En efectivo y Yape/Plin</span>
+              </div>
+              <div className="bg-white p-4 rounded-xl shadow-sm border-l-4 border-amber-500">
+                <span className="text-xs text-slate-500 font-bold">Gasto Diésel Estimado</span>
+                <p className="text-2xl font-black text-amber-800 mt-1">S/ {stats?.gasto_combustible_estimado_soles || '0.00'}</p>
+                <span className="text-[11px] text-slate-400">{stats?.galones_diesel_consumidos || 0} galones rodados</span>
+              </div>
+              <div className="bg-white p-4 rounded-xl shadow-sm border-l-4 border-rose-500">
+                <span className="text-xs text-slate-500 font-bold">Deuda por Cobrar</span>
+                <p className="text-2xl font-black text-rose-600 mt-1">S/ {stats?.total_deuda_cobrar.toFixed(2) || '0.00'}</p>
+                <span className="text-[11px] text-rose-500">Fiados acumulados</span>
+              </div>
+            </div>
+          )}
+
+          {/* Modal Recarga de Combustible */}
+          {modalRecargaCombustible && (
+            <ModalRecargaCombustible 
+              cisternas={cisternas}
+              onClose={() => setModalRecargaCombustible(false)}
+              onSuccess={() => { setModalRecargaCombustible(false); onRecargar(); }}
+            />
+          )}
+
+          {/* Modal Nuevo Pedido */}
+          {modalNuevoPedido && (
+            <ModalNuevoPedido 
+              clientes={clientes} 
+              cisternas={cisternas}
+              onClose={() => setModalNuevoPedido(false)}
+              onSuccess={() => { setModalNuevoPedido(false); onRecargar(); }}
+            />
+          )}
+
+          {/* Modal Nuevo Cliente */}
+          {modalNuevoCliente && (
+            <ModalNuevoCliente 
+              sectores={sectores.filter(s => s !== "Todos")}
+              onClose={() => setModalNuevoCliente(false)}
+              onSuccess={() => { setModalNuevoCliente(false); onRecargar(); }}
+            />
+          )}
+
+          {/* Modal de Ticket / Comprobante SUNAT */}
+          {comprobanteImprimir && (
+            <ModalComprobanteSUNAT 
+              pedido={comprobanteImprimir}
+              cliente={clientes.find(c => c.id_cliente === comprobanteImprimir.id_cliente)}
+              onClose={() => setComprobanteImprimir(null)}
+            />
+          )}
+        </div>
+      );
+    }
+
+    // MAPA DE LA FLOTA ADMIN
+    function MapaFlotaAdmin({ clientes, pedidos, cisternas, filtroSector, onProbarCliente }) {
+      const mapContainer = useRef(null);
+      const mapInstance = useRef(null);
+      const layersRef = useRef(null);
+
+      useEffect(() => {
+        if (!mapContainer.current) return;
+        if (mapContainer.current._leaflet_id) {
+          mapContainer.current._leaflet_id = null;
+        }
+
+        const map = L.map(mapContainer.current).setView([-12.0435, -76.9698], 14);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          maxZoom: 19,
+          attribution: '© OpenStreetMap'
+        }).addTo(map);
+
+        layersRef.current = L.layerGroup().addTo(map);
+        mapInstance.current = map;
+
+        return () => {
+          if (mapInstance.current) {
+            mapInstance.current.remove();
+            mapInstance.current = null;
+          }
+        };
+      }, []);
+
+      useEffect(() => {
+        if (!mapInstance.current || !layersRef.current) return;
+        layersRef.current.clearLayers();
+
+        // Cisternas de Agua en vivo
+        cisternas.forEach(cis => {
+          if (!cis.latitud_actual) return;
+          const icon = L.divIcon({
+            className: "custom-div-icon",
+            html: `<div class="custom-marker bg-sky-600 w-10 h-10 text-lg border-2 border-white shadow-lg animate-pulse">🚚</div>`,
+            iconSize: [40, 40],
+            iconAnchor: [20, 20]
+          });
+          const marker = L.marker([cis.latitud_actual, cis.longitud_actual], { icon });
+          marker.bindPopup(`
+            <div class="text-xs p-1">
+              <span class="bg-sky-100 text-sky-800 font-bold px-1.5 py-0.5 rounded text-[10px]">CISTERNA DE AGUA</span>
+              <p class="font-bold text-sm text-slate-900 mt-1">Placa: ${cis.placa}</p>
+              <p class="text-slate-600">${cis.modelo_vehiculo}</p>
+              <p class="text-slate-600">Chofer: <strong>${cis.chofer}</strong></p>
+              <p class="text-sky-700 font-semibold mt-1">Carga: ${cis.litros_asignados.toLocaleString()} / ${cis.capacidad_total_litros.toLocaleString()} L</p>
+              <p class="text-slate-500 text-[11px]">Km hoy (GPS): <strong>${cis.km_recorridos_hoy} km</strong></p>
+            </div>
+          `);
+          layersRef.current.addLayer(marker);
+        });
+
+        // Clientes con pedidos de agua
+        const clientesFiltrados = filtroSector === "Todos" 
+          ? clientes 
+          : clientes.filter(c => c.sector === filtroSector);
+
+        clientesFiltrados.forEach(cli => {
+          if (!cli.latitud || !cli.longitud) return;
+          const pedido = pedidos.find(p => p.id_cliente === cli.id_cliente && p.estado !== "Entregado");
+
+          const icon = L.divIcon({
+            className: "custom-div-icon",
+            html: `<div class="custom-marker ${pedido ? 'bg-sky-500' : 'bg-slate-400'} w-8 h-8 text-sm">💧</div>`,
+            iconSize: [32, 32],
+            iconAnchor: [16, 16]
+          });
+
+          const marker = L.marker([cli.latitud, cli.longitud], { icon });
+          marker.bindPopup(`
+            <div class="text-xs p-1" style="min-width: 200px;">
+              <p class="font-bold text-slate-900">${cli.nombre}</p>
+              <p class="text-slate-500">${cli.sector} ${cli.manzana_lote || ''}</p>
+              <p class="text-amber-900 bg-amber-50 p-1 rounded mt-1 border border-amber-200"><strong>Ref:</strong> ${cli.direccion_referencia}</p>
+              ${pedido ? `<p class="mt-1 font-bold text-sky-700">Pedido: ${pedido.litros_agua.toLocaleString()} Litros (${pedido.modalidad})</p>` : ''}
+              <div class="mt-2 flex flex-col gap-1">
+                <a href="https://wa.me/51${cli.telefono}?text=Hola%20${encodeURIComponent(cli.nombre)},%20tu%20cisterna%20de%20agua%20est%C3%A1%20en%20camino.%20Puedes%20seguirla%20aqu%C3%AD:%20http://localhost:8000/?t=${cli.token_acceso}" target="_blank"
+                   class="bg-emerald-600 text-white text-center py-1 rounded font-bold text-[11px] block">
+                  💬 Avisar por WhatsApp
+                </a>
+              </div>
+            </div>
+          `);
+          layersRef.current.addLayer(marker);
+        });
+      }, [clientes, pedidos, cisternas, filtroSector]);
+
+      return (
+        <div className="relative">
+          <div id="map-admin" ref={mapContainer} style={{ height: "450px", width: "100%" }}></div>
+          <div className="absolute bottom-2 left-2 bg-white/95 backdrop-blur px-3 py-1.5 rounded-lg shadow text-xs z-[1000] border border-slate-200 flex gap-3">
+            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-sky-600"></span> Cisterna Volkswagen</span>
+            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-sky-500"></span> Cliente con Pedido de Agua</span>
+          </div>
+        </div>
+      );
+    }
+
+    // =========================================================================
+    // VISTA 2: PORTAL DEL CLIENTE (100% AGUA, CON CALIDAD Y SUSCRIPCIÓN)
+    // =========================================================================
+    function PortalCliente(props) {
+      if (!props.clienteSesion) {
+        return <ClienteLoginForm {...props} />;
+      }
+      return <ClienteDashboard {...props} />;
+    }
+
+    function ClienteLoginForm({ telefonoInput, setTelefonoInput, buscandoCliente, onBuscar }) {
+      return (
+        <div className="flex-1 flex items-center justify-center p-4">
+          <div className="bg-white p-6 rounded-2xl shadow-xl w-full max-w-md border border-slate-200">
+            <div className="text-center mb-5">
+              <span className="bg-sky-100 text-sky-800 text-3xl p-3 rounded-2xl inline-block mb-2">💧</span>
+              <h2 className="text-xl font-black text-slate-900">Seguimiento de Cisterna de Agua</h2>
+              <p className="text-xs text-slate-500 mt-1">Consulta en vivo la llegada del camión cisterna a tu zona en Santa Anita.</p>
+            </div>
+
+            <form onSubmit={(e) => { e.preventDefault(); onBuscar(telefonoInput); }} className="space-y-3">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Tu Número de Celular</label>
+                <input 
+                  type="tel"
+                  required
+                  placeholder="Ej: 955443322"
+                  value={telefonoInput}
+                  onChange={(e) => setTelefonoInput(e.target.value)}
+                  className="w-full text-base p-3 border-2 border-slate-300 rounded-xl focus:border-sky-600 focus:outline-none text-center font-bold tracking-wider"
+                />
+                <p className="text-[11px] text-slate-400 mt-1 text-center">Acceso directo sin contraseñas con el número que solicitaste el agua.</p>
+              </div>
+
+              <button 
+                type="submit"
+                disabled={buscandoCliente}
+                className="w-full bg-sky-600 hover:bg-sky-700 text-white font-black py-3 rounded-xl transition shadow active:scale-95 text-sm"
+              >
+                {buscandoCliente ? "Buscando tu cisterna..." : "Ver Mi Pedido y Camión"}
+              </button>
+            </form>
+
+            <div className="mt-6 pt-4 border-t border-slate-100">
+              <p className="text-[11px] font-bold text-slate-400 uppercase text-center mb-2">Vecinos de prueba rápida:</p>
+              <div className="flex flex-col gap-1.5 text-xs">
+                <button type="button" onClick={() => onBuscar("955443322")} className="bg-slate-50 hover:bg-slate-100 p-2 rounded-lg text-left border flex justify-between">
+                  <span><strong>Don Carlos Mendoza</strong> (Huáscar - 2,000L)</span>
+                  <span className="text-sky-600 font-bold">Probar 👉</span>
+                </button>
+                <button type="button" onClick={() => onBuscar("991223344")} className="bg-slate-50 hover:bg-slate-100 p-2 rounded-lg text-left border flex justify-between">
+                  <span><strong>Lavandería Santa Anita</strong> (Cisterna Completa 10,000L)</span>
+                  <span className="text-sky-600 font-bold">Probar 👉</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    function ClienteDashboard({ clienteSesion, onCerrarSesion, onRecargar }) {
+      const mapClienteRef = useRef(null);
+      const mapClienteInstance = useRef(null);
+      const { cliente, pedido_activo, cisterna_asignada } = clienteSesion;
+
+      useEffect(() => {
+        if (!mapClienteRef.current || !cliente.latitud) return;
+        if (mapClienteRef.current._leaflet_id) {
+          mapClienteRef.current._leaflet_id = null;
+        }
+
+        const map = L.map(mapClienteRef.current).setView([cliente.latitud, cliente.longitud], 15);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          maxZoom: 19,
+          attribution: '© OpenStreetMap'
+        }).addTo(map);
+
+        L.marker([cliente.latitud, cliente.longitud], {
+          icon: L.divIcon({
+            className: "custom-div-icon",
+            html: `<div class="custom-marker bg-emerald-600 w-9 h-9 text-base">🏠</div>`,
+            iconSize: [36, 36]
+          })
+        }).addTo(map).bindPopup("<b>Tu Domicilio</b><br>" + cliente.direccion_referencia).openPopup();
+
+        if (cisterna_asignada && cisterna_asignada.latitud_actual) {
+          L.marker([cisterna_asignada.latitud_actual, cisterna_asignada.longitud_actual], {
+            icon: L.divIcon({
+              className: "custom-div-icon",
+              html: `<div class="custom-marker bg-sky-600 w-10 h-10 text-lg border-2 border-white animate-bounce">🚚</div>`,
+              iconSize: [40, 40]
+            })
+          }).addTo(map).bindPopup(`<b>Cisterna ${cisterna_asignada.placa}</b><br>Chofer: ${cisterna_asignada.chofer}`);
+          
+          const bounds = L.latLngBounds([
+            [cliente.latitud, cliente.longitud],
+            [cisterna_asignada.latitud_actual, cisterna_asignada.longitud_actual]
+          ]);
+          map.fitBounds(bounds, { padding: [40, 40] });
+        }
+
+        mapClienteInstance.current = map;
+
+        return () => {
+          if (mapClienteInstance.current) {
+            mapClienteInstance.current.remove();
+            mapClienteInstance.current = null;
+          }
+        };
+      }, [cliente.id_cliente, cisterna_asignada?.id_cisterna]);
+
+      return (
+        <div className="flex-1 flex flex-col p-3 sm:p-4 gap-3">
+          {/* Bienvenida del Cliente */}
+          <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 flex flex-wrap justify-between items-center gap-2">
+            <div>
+              <span className="text-[10px] font-black uppercase tracking-wider bg-sky-100 text-sky-800 px-2 py-0.5 rounded-full">
+                Abastecimiento de Agua Potable
+              </span>
+              <h2 className="text-lg font-black text-slate-900 mt-1">¡Hola, {cliente.nombre}!</h2>
+              <p className="text-xs text-slate-500">📍 {cliente.sector} {cliente.manzana_lote ? `(${cliente.manzana_lote})` : ''}</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <button onClick={onRecargar} className="bg-slate-100 text-slate-700 text-xs px-2.5 py-1.5 rounded-lg font-bold">
+                🔄 Actualizar
+              </button>
+              <button onClick={onCerrarSesion} className="bg-slate-200 text-slate-600 text-xs px-2.5 py-1.5 rounded-lg font-bold">
+                Salir
+              </button>
+            </div>
+          </div>
+
+          {/* Sello de Calidad y Certificado del Agua */}
+          <div className="bg-emerald-50 border border-emerald-200 p-3 rounded-xl flex items-center justify-between text-xs text-emerald-950">
+            <div className="flex items-center gap-2">
+              <span className="text-2xl">✅</span>
+              <div>
+                <p className="font-bold">Agua 100% Potable y Desinfectada</p>
+                <p className="text-[11px] text-emerald-800">Cloro residual: <strong>{cisterna_asignada?.calidad_cloro_ppm || 0.85} ppm</strong> (Apto consumo humano) • pH: {cisterna_asignada?.calidad_ph || 7.2}</p>
+              </div>
+            </div>
+            <span className="bg-emerald-600 text-white font-black px-2 py-1 rounded text-[10px]">CERTIFICADO</span>
+          </div>
+
+          {/* Estado del Pedido Activo */}
+          {pedido_activo ? (
+            <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 space-y-3">
+              <div className="flex justify-between items-center">
+                <span className="font-bold text-xs text-slate-500 uppercase">Estado de la Cisterna</span>
+                <span className="bg-amber-100 text-amber-800 font-black text-xs px-2.5 py-1 rounded-full animate-pulse">
+                  {pedido_activo.estado}
+                </span>
+              </div>
+
+              {/* Barra de Pasos */}
+              <div className="grid grid-cols-4 gap-1 text-center text-[10px] font-bold">
+                <div className="p-1.5 bg-emerald-500 text-white rounded">1. Programado</div>
+                <div className={`p-1.5 rounded ${pedido_activo.estado !== 'Pendiente' ? 'bg-emerald-500 text-white' : 'bg-slate-200 text-slate-500'}`}>
+                  2. Asignado
+                </div>
+                <div className={`p-1.5 rounded ${pedido_activo.estado === 'En camino' || pedido_activo.estado === 'Llegando' ? 'bg-amber-500 text-white animate-pulse' : 'bg-slate-200 text-slate-500'}`}>
+                  3. En camino
+                </div>
+                <div className={`p-1.5 rounded ${pedido_activo.estado === 'Entregado' ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-500'}`}>
+                  4. Descargado
+                </div>
+              </div>
+
+              <div className="bg-sky-50 p-3 rounded-xl flex justify-between items-center text-xs border border-sky-100">
+                <div>
+                  <p className="font-bold text-sky-950 text-sm">
+                    💧 {pedido_activo.litros_agua.toLocaleString()} Litros de Agua Potable ({pedido_activo.modalidad})
+                  </p>
+                  <p className="text-slate-500 text-[11px] mt-0.5">
+                    {cisterna_asignada ? `Cisterna: ${cisterna_asignada.placa} • Chofer: ${cisterna_asignada.chofer}` : 'Asignando cisterna disponible...'}
+                  </p>
+                </div>
+                <div className="text-right">
+                  <span className="text-slate-400 block text-[10px]">Total a pagar:</span>
+                  <span className="text-lg font-black text-sky-800">S/ {pedido_activo.total_soles.toFixed(2)}</span>
+                </div>
+              </div>
+
+              <div className="rounded-xl overflow-hidden border border-slate-200">
+                <div id="map-cliente" ref={mapClienteRef} style={{ height: "300px", width: "100%" }}></div>
+              </div>
+            </div>
+          ) : (
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 text-center">
+              <span className="text-3xl">🚰</span>
+              <h3 className="font-bold text-slate-800 mt-2">No tienes recargas en camino hoy.</h3>
+              <p className="text-xs text-slate-500 mt-1">¿Necesitas llenar tu tanque de 2,000 Litros o una cisterna completa?</p>
+            </div>
+          )}
+
+          {/* Suscripción Periódica Automática */}
+          <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 flex flex-wrap justify-between items-center gap-3">
+            <div>
+              <span className="text-xs font-bold text-slate-500">Recarga Automática Programada:</span>
+              <p className="text-sm font-bold text-slate-800 mt-0.5">
+                {cliente.suscripcion_activa ? (
+                  <span className="text-emerald-700">✅ Activa: {cliente.dias_suscripcion || 'Lunes y Jueves'}</span>
+                ) : (
+                  <span className="text-slate-500">Sin programación automática</span>
+                )}
+              </p>
+            </div>
+            <a 
+              href={`https://wa.me/51999888777?text=Hola,%20soy%20${encodeURIComponent(cliente.nombre)}%20de%20${encodeURIComponent(cliente.sector)}.%20Quiero%20solicitar%20una%20recarga%20de%20agua%20de%202,000L.`}
+              target="_blank"
+              className="bg-sky-600 hover:bg-sky-700 text-white font-bold text-xs px-4 py-2.5 rounded-xl shadow transition"
+            >
+              💧 Solicitar Recarga Inmediata
+            </a>
+          </div>
+        </div>
+      );
+    }
+
+    // MODALES
+    function ModalRecargaCombustible({ cisternas, onClose, onSuccess }) {
+      const [idCisterna, setIdCisterna] = useState(cisternas[0]?.id_cisterna || "");
+      const [galones, setGalones] = useState(2.5);
+      const [odometro, setOdometro] = useState(142850);
+      const [grifo, setGrifo] = useState("Primax Óvalo Santa Anita");
+      const [guardando, setGuardando] = useState(false);
+
+      const handleSubmit = async (e) => {
+        e.preventDefault();
+        setGuardando(true);
+        try {
+          await fetch(`${API_BASE}/combustible/recarga`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              id_cisterna: parseInt(idCisterna),
+              galones_cargados: parseFloat(galones),
+              km_odometro: parseFloat(odometro),
+              grifo: grifo
+            })
+          });
+          onSuccess();
+        } catch (e) {
+          alert("Error al registrar recarga");
+        } finally {
+          setGuardando(false);
+        }
+      };
+
+      return (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-3 text-xs">
+          <div className="bg-white rounded-2xl w-full max-w-sm p-4 shadow-xl space-y-3">
+            <h3 className="font-bold text-slate-900 text-base">Registrar Carga de Diésel en Grifo</h3>
+            <form onSubmit={handleSubmit} className="space-y-2.5">
+              <div>
+                <label className="font-bold text-slate-700">Cisterna / Camión *</label>
+                <select value={idCisterna} onChange={e => setIdCisterna(e.target.value)} className="w-full p-2 border rounded mt-1 font-medium">
+                  {cisternas.map(c => <option key={c.id_cisterna} value={c.id_cisterna}>{c.placa} ({c.modelo_vehiculo})</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="font-bold text-slate-700">Galones de Diésel Cargados *</label>
+                <input type="number" step="0.1" required value={galones} onChange={e => setGalones(e.target.value)} className="w-full p-2 border rounded mt-1 font-bold" />
+              </div>
+              <div>
+                <label className="font-bold text-slate-700">Kilometraje Odómetro Físico</label>
+                <input type="number" value={odometro} onChange={e => setOdometro(e.target.value)} className="w-full p-2 border rounded mt-1" />
+              </div>
+              <div>
+                <label className="font-bold text-slate-700">Grifo</label>
+                <input type="text" value={grifo} onChange={e => setGrifo(e.target.value)} className="w-full p-2 border rounded mt-1" />
+              </div>
+
+              <div className="bg-amber-50 p-2.5 rounded-lg border border-amber-200 flex justify-between font-bold text-amber-950">
+                <span>Total a pagar:</span>
+                <span>S/ {(galones * 16.50).toFixed(2)}</span>
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <button type="button" onClick={onClose} className="flex-1 py-2 bg-slate-200 rounded-lg font-bold">Cancelar</button>
+                <button type="submit" disabled={guardando} className="flex-1 py-2 bg-amber-600 text-white rounded-lg font-bold">
+                  {guardando ? "Guardando..." : "Guardar Carga"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      );
+    }
+
+    function ModalComprobanteSUNAT({ pedido, cliente, onClose }) {
+      return (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-3 text-xs">
+          <div className="bg-white rounded-2xl w-full max-w-sm p-5 shadow-2xl space-y-3 font-mono border">
+            <div className="text-center border-b pb-2">
+              <h2 className="font-bold text-sm">AGUA POTABLE SANTA ANITA E.I.R.L.</h2>
+              <p className="text-[10px] text-slate-500">RUC: 20608976541</p>
+              <p className="text-[10px] text-slate-500">Carretera Central Km 3.5, Santa Anita, Lima</p>
+              <div className="my-2 bg-slate-100 p-1.5 rounded font-bold text-xs border">
+                {pedido.comprobante_tipo.toUpperCase()} ELECTRÓNICA<br/>
+                {pedido.comprobante_numero || 'B001-000101'}
+              </div>
+            </div>
+
+            <div className="space-y-1 text-[11px]">
+              <p><strong>Cliente:</strong> {cliente?.nombre}</p>
+              <p><strong>DNI/RUC:</strong> {cliente?.dni_ruc || '10458921'}</p>
+              <p><strong>Dirección:</strong> {cliente?.sector} - {cliente?.direccion_referencia?.substring(0, 30)}</p>
+              <p><strong>Fecha:</strong> {new Date(pedido.fecha_pedido).toLocaleString()}</p>
+            </div>
+
+            <div className="border-t border-b py-2 space-y-1">
+              <div className="flex justify-between font-bold">
+                <span>DESCRIPCIÓN</span>
+                <span>IMPORTE</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Agua Potable {pedido.litros_agua.toLocaleString()} L</span>
+                <span>S/ {pedido.total_soles.toFixed(2)}</span>
+              </div>
+            </div>
+
+            <div className="space-y-1 text-right font-bold">
+              <p>OP. GRAVADA: S/ {(pedido.total_soles / 1.18).toFixed(2)}</p>
+              <p>I.G.V. (18%): S/ {(pedido.total_soles - (pedido.total_soles / 1.18)).toFixed(2)}</p>
+              <p className="text-base text-sky-950">TOTAL: S/ {pedido.total_soles.toFixed(2)}</p>
+            </div>
+
+            <div className="text-center pt-2 border-t text-[10px] text-slate-400">
+              Representación impresa de la Boleta Electrónica.<br/>
+              Autorizado mediante Resolución SUNAT.
+            </div>
+
+            <button onClick={onClose} className="w-full bg-slate-800 text-white font-bold py-2 rounded-lg font-sans mt-2">
+              Cerrar Ticket
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    function ModalNuevoPedido({ clientes, cisternas, onClose, onSuccess }) {
+      const [idCliente, setIdCliente] = useState(clientes[0]?.id_cliente || "");
+      const [litros, setLitros] = useState(2000);
+      const [idCisterna, setIdCisterna] = useState(cisternas[0]?.id_cisterna || "");
+      const [tipoComprobante, setTipoComprobante] = useState("Boleta");
+      const [guardando, setGuardando] = useState(false);
+
+      const total = litros === 10000 ? 240.0 : (litros / 1000) * 25.0;
+
+      const handleSubmit = async (e) => {
+        e.preventDefault();
+        setGuardando(true);
+        try {
+          await fetch(`${API_BASE}/pedidos`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              id_cliente: parseInt(idCliente),
+              modalidad: litros >= 10000 ? "Cisterna Completa" : "Fraccionado",
+              litros_agua: parseInt(litros),
+              total_soles: total,
+              comprobante_tipo: tipoComprobante,
+              id_cisterna: parseInt(idCisterna)
+            })
+          });
+          onSuccess();
+        } catch (e) {
+          alert("Error al registrar pedido");
+        } finally {
+          setGuardando(false);
+        }
+      };
+
+      return (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-3 text-xs">
+          <div className="bg-white rounded-2xl w-full max-w-md p-4 shadow-xl space-y-2.5">
+            <h3 className="font-bold text-slate-900 text-base">Nuevo Despacho de Agua Potable</h3>
+            <form onSubmit={handleSubmit} className="space-y-2.5">
+              <div>
+                <label className="font-bold text-slate-700">Cliente / Vecino *</label>
+                <select value={idCliente} onChange={e => setIdCliente(e.target.value)} className="w-full p-2 border rounded mt-1 font-medium">
+                  {clientes.map(c => <option key={c.id_cliente} value={c.id_cliente}>{c.nombre} ({c.sector})</option>)}
+                </select>
+              </div>
+
+              <div>
+                <label className="font-bold text-slate-700">Volumen de Agua Requerido</label>
+                <select value={litros} onChange={e => setLitros(e.target.value)} className="w-full p-2 border rounded mt-1 font-bold text-sky-800">
+                  <option value="1500">1,500 Litros (Tanque pequeño) - S/ 37.50</option>
+                  <option value="2000">2,000 Litros (Residencial estándar) - S/ 50.00</option>
+                  <option value="3000">3,000 Litros (Tanque elevado grande) - S/ 75.00</option>
+                  <option value="10000">10,000 Litros (Cisterna Completa Industrial) - S/ 240.00</option>
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="font-bold text-slate-700">Asignar a Cisterna</label>
+                  <select value={idCisterna} onChange={e => setIdCisterna(e.target.value)} className="w-full p-2 border rounded mt-1">
+                    {cisternas.map(c => <option key={c.id_cisterna} value={c.id_cisterna}>{c.placa} ({c.chofer})</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="font-bold text-slate-700">Comprobante SUNAT</label>
+                  <select value={tipoComprobante} onChange={e => setTipoComprobante(e.target.value)} className="w-full p-2 border rounded mt-1">
+                    <option value="Boleta">Boleta Electrónica</option>
+                    <option value="Factura">Factura Electrónica (RUC)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="bg-sky-50 p-3 rounded-xl flex justify-between items-center border border-sky-100">
+                <span className="font-bold text-sky-950">Total a Cobrar:</span>
+                <span className="text-lg font-black text-sky-700">S/ {total.toFixed(2)}</span>
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <button type="button" onClick={onClose} className="flex-1 py-2 bg-slate-200 rounded-lg font-bold">Cancelar</button>
+                <button type="submit" disabled={guardando} className="flex-1 py-2 bg-sky-600 text-white rounded-lg font-bold">
+                  {guardando ? "Guardando..." : "Confirmar Despacho"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      );
+    }
+
+    function ModalNuevoCliente({ sectores, onClose, onSuccess }) {
+      const [nombre, setNombre] = useState("");
+      const [telefono, setTelefono] = useState("");
+      const [dniRuc, setDniRuc] = useState("");
+      const [sector, setSector] = useState(sectores[0] || "Coop. Huáscar");
+      const [referencia, setReferencia] = useState("");
+      const [latitud, setLatitud] = useState(-12.0435);
+      const [longitud, setLongitud] = useState(-76.9698);
+      const [guardando, setGuardando] = useState(false);
+
+      const handleSubmit = async (e) => {
+        e.preventDefault();
+        setGuardando(true);
+        try {
+          await fetch(`${API_BASE}/clientes`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              nombre,
+              telefono,
+              dni_ruc: dniRuc,
+              sector,
+              direccion_referencia: referencia,
+              latitud: parseFloat(latitud),
+              longitud: parseFloat(longitud)
+            })
+          });
+          onSuccess();
+        } catch (e) {
+          alert("Error al registrar cliente");
+        } finally {
+          setGuardando(false);
+        }
+      };
+
+      return (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-3 text-xs">
+          <div className="bg-white rounded-2xl w-full max-w-md p-4 shadow-xl space-y-2.5">
+            <h3 className="font-bold text-slate-900 text-base mb-1">Registrar Vecino para Abastecimiento</h3>
+            <form onSubmit={handleSubmit} className="space-y-2">
+              <div>
+                <label className="font-bold text-slate-700">Nombre o Razón Social *</label>
+                <input required type="text" value={nombre} onChange={e => setNombre(e.target.value)} placeholder="Ej: Doña Carmen / Panadería..." className="w-full p-2 border rounded mt-1" />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="font-bold text-slate-700">Celular (Llave del cliente) *</label>
+                  <input required type="tel" value={telefono} onChange={e => setTelefono(e.target.value)} placeholder="987654321" className="w-full p-2 border rounded mt-1 font-bold" />
+                </div>
+                <div>
+                  <label className="font-bold text-slate-700">DNI o RUC (SUNAT)</label>
+                  <input type="text" value={dniRuc} onChange={e => setDniRuc(e.target.value)} placeholder="DNI o RUC" className="w-full p-2 border rounded mt-1" />
+                </div>
+              </div>
+              <div>
+                <label className="font-bold text-slate-700">Sector de Santa Anita *</label>
+                <select value={sector} onChange={e => setSector(e.target.value)} className="w-full p-2 border rounded mt-1">
+                  {sectores.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="font-bold text-slate-700">Referencia Local Clave (Crucial sin mapa) *</label>
+                <textarea required rows="2" value={referencia} onChange={e => setReferencia(e.target.value)} placeholder="Ej: Frente a la loza deportiva, escalera 3, puerta azul" className="w-full p-2 border rounded mt-1"></textarea>
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <button type="button" onClick={onClose} className="flex-1 py-2 bg-slate-200 rounded-lg font-bold">Cancelar</button>
+                <button type="submit" disabled={guardando} className="flex-1 py-2 bg-sky-600 text-white rounded-lg font-bold">
+                  {guardando ? "Guardando..." : "Guardar Cliente"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById("root"));
+    root.render(<App />);
+  </script>
+</body>
+</html>
