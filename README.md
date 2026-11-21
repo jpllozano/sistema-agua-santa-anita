@@ -40,7 +40,8 @@ Plataforma web y móvil para empresas de distribución de **agua potable en cist
 * [backend/models.py](file:///c:/Users/Administrador/Desktop/Proyectos_Personales/gas-delivery-santa-anita/backend/models.py) - Modelos SQLAlchemy (Cisternas, Combustible, Mantenimiento, Clientes, Pedidos).
 * [backend/crud.py](file:///c:/Users/Administrador/Desktop/Proyectos_Personales/gas-delivery-santa-anita/backend/crud.py) - Lógica de despacho fraccionado, Haversine GPS y detección de desvíos.
 * [frontend/index.html](file:///c:/Users/Administrador/Desktop/Proyectos_Personales/gas-delivery-santa-anita/frontend/index.html) - Aplicación React con interfaz dual, mapas OpenStreetMap y ticket SUNAT.
-* [database/schema_sqlserver.sql](file:///c:/Users/Administrador/Desktop/Proyectos_Personales/gas-delivery-santa-anita/database/schema_sqlserver.sql) - Script completo T-SQL para Microsoft SQL Server.
+* [database/schema_sqlserver.sql](file:///c:/Users/Administrador/Desktop/Proyectos_Personales/gas-delivery-santa-anita/database/schema_sqlserver.sql) - Script completo T-SQL para Microsoft SQL Server con datos iniciales.
+* [database/schema_postgresql.sql](file:///c:/Users/Administrador/Desktop/Proyectos_Personales/gas-delivery-santa-anita/database/schema_postgresql.sql) - Script equivalente para PostgreSQL 12+ / Supabase con datos iniciales.
 
 ---
 

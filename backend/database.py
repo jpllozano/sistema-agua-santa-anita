@@ -5,10 +5,10 @@ from sqlalchemy.orm import declarative_base, sessionmaker
 
 # Configuración de conexión
 # Formato SQL Server para Windows con autenticación de Windows:
-# mssql+pyodbc://localhost/GasDeliveryDB?driver=ODBC+Driver+17+for+SQL+Server&trusted_connection=yes
+# mssql+pyodbc://localhost/AguaSantaAnitaDB?driver=ODBC+Driver+17+for+SQL+Server&trusted_connection=yes
 SQL_SERVER_URL = os.getenv(
     "DATABASE_URL",
-    "mssql+pyodbc://localhost/GasDeliveryDB?driver=ODBC+Driver+17+for+SQL+Server&trusted_connection=yes"
+    "mssql+pyodbc://localhost/AguaSantaAnitaDB?driver=ODBC+Driver+17+for+SQL+Server&trusted_connection=yes"
 )
 
 SQLITE_FALLBACK_URL = "sqlite:///./gas_delivery.db"
@@ -24,7 +24,7 @@ def init_db_engine():
         try:
             test_engine = create_engine(SQL_SERVER_URL, pool_pre_ping=True)
             with test_engine.connect() as conn:
-                print(" Conexión exitosa a Microsoft SQL Server (GasDeliveryDB)")
+                print(" Conexión exitosa a Microsoft SQL Server (AguaSantaAnitaDB)")
             engine = test_engine
         except Exception as e:
             print(f" Aviso: No se pudo conectar a SQL Server ({e}).")
